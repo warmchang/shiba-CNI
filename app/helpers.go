@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/moycat/shiba/model"
+	"github.com/moycat/shiba/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
@@ -19,6 +20,15 @@ func (shiba *Shiba) getAPIContext() (context.Context, func()) {
 		return context.WithTimeout(context.Background(), shiba.apiTimeout)
 	}
 	return context.WithCancel(context.Background())
+}
+
+func (shiba *Shiba) getNodeTunnelName(nodeName string) string {
+	shiba.nodeMapLock.Lock()
+	defer shiba.nodeMapLock.Unlock()
+	if shiba.nodeMapCache != nil && len(shiba.nodeMapCache[nodeName]) > 0 {
+		return shiba.nodeMapCache[nodeName]
+	}
+	return tunnelPrefix + util.NewUID()
 }
 
 func (shiba *Shiba) isTunnelInSync(link *netlink.Ip6tnl, node *model.Node) bool {
@@ -52,8 +62,8 @@ func (shiba *Shiba) isTunnelInSync(link *netlink.Ip6tnl, node *model.Node) bool 
 	return true
 }
 
-func (shiba *Shiba) loadNodeMap() {
-	path := filepath.Join(os.TempDir(), nodeMapFilename)
+func (shiba *Shiba) loadNodeMapCache() {
+	path := filepath.Join(os.TempDir(), nodeMapCacheFilename)
 	f, err := os.Open(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -63,16 +73,22 @@ func (shiba *Shiba) loadNodeMap() {
 	}
 	defer func() { _ = f.Close() }()
 	decoder := json.NewDecoder(f)
-	nodeMap := make(model.NodeMap)
-	if err := decoder.Decode(&nodeMap); err != nil {
-		log.Errorf("failed to unmarshal node map file [%s]: %v", path, err)
+	cache := new(model.NodeMapCache)
+	if err := decoder.Decode(&cache); err != nil {
+		log.Errorf("failed to unmarshal node map cache file [%s]: %v", path, err)
 		return
 	}
-	shiba.saveNodeMap(nodeMap)
+	if cache.Version != nodeMapCacheVersion {
+		log.Warning("node map cache version does not match, ignoring")
+		return
+	}
+	shiba.nodeMapLock.Lock()
+	shiba.nodeMapCache = cache.Mapping
+	shiba.nodeMapLock.Unlock()
 }
 
-func (shiba *Shiba) dumpNodeMap() {
-	path := filepath.Join(os.TempDir(), nodeMapFilename)
+func (shiba *Shiba) dumpNodeMapCache() {
+	path := filepath.Join(os.TempDir(), nodeMapCacheFilename)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		log.Errorf("failed to open node map file [%s] for writing: %v", path, err)
@@ -85,9 +101,20 @@ func (shiba *Shiba) dumpNodeMap() {
 	}()
 	encoder := json.NewEncoder(f)
 	nodeMap := shiba.cloneNodeMap()
-	if err := encoder.Encode(nodeMap); err != nil {
-		log.Errorf("failed to marshal node map to [%s]: %v", path, err)
+	cache := &model.NodeMapCache{
+		Version: nodeMapCacheVersion,
+		Mapping: make(map[string]string),
 	}
+	for name, node := range nodeMap {
+		cache.Mapping[name] = node.Tunnel
+	}
+	if err := encoder.Encode(cache); err != nil {
+		log.Errorf("failed to marshal node map cache to [%s]: %v", path, err)
+		return
+	}
+	shiba.nodeMapLock.Lock()
+	shiba.nodeMapCache = cache.Mapping
+	shiba.nodeMapLock.Unlock()
 }
 
 func (shiba *Shiba) cloneNodeMap() model.NodeMap {

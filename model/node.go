@@ -40,3 +40,10 @@ func (n *Node) DiffersFrom(nn *Node) bool {
 	}
 	return false
 }
+
+// NodeMapCache stores the mappings between nodes and tunnels.
+// The cache file should persist while the OS is running to avoid recreating tunnels when Shiba restarts.
+type NodeMapCache struct {
+	Version int
+	Mapping map[string]string
+}

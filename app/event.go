@@ -64,11 +64,11 @@ func (shiba *Shiba) addNode(node *corev1.Node) bool {
 		Name:     node.Name,
 		IP:       nodeIP,
 		PodCIDRs: nodePodCIDRs,
-		Tunnel:   tunnelPrefix + util.NewUID(),
+		Tunnel:   shiba.getNodeTunnelName(node.Name),
 	}
 	nodeMap[node.Name] = parsedNode
 	shiba.saveNodeMap(nodeMap)
-	shiba.dumpNodeMap()
+	shiba.dumpNodeMapCache()
 	log.Debugf("added node [%s] and dumped map", node.Name)
 	return true
 }
@@ -81,7 +81,7 @@ func (shiba *Shiba) deleteNode(node *corev1.Node) bool {
 	}
 	delete(nodeMap, node.Name)
 	shiba.saveNodeMap(nodeMap)
-	shiba.dumpNodeMap()
+	shiba.dumpNodeMapCache()
 	log.Debugf("deleted node [%s] and dumped map", node.Name)
 	return true
 }
@@ -107,7 +107,7 @@ func (shiba *Shiba) updateNode(node *corev1.Node) bool {
 		Name:     node.Name,
 		IP:       nodeIP,
 		PodCIDRs: nodePodCIDRs,
-		Tunnel:   tunnelPrefix + util.NewUID(),
+		Tunnel:   shiba.getNodeTunnelName(node.Name),
 	}
 	if !parsedNode.DiffersFrom(oldNode) {
 		log.Debugf("node [%s] have no actual updates", node.Name)
@@ -115,7 +115,7 @@ func (shiba *Shiba) updateNode(node *corev1.Node) bool {
 	}
 	nodeMap[node.Name] = parsedNode
 	shiba.saveNodeMap(nodeMap)
-	shiba.dumpNodeMap()
+	shiba.dumpNodeMapCache()
 	log.Debugf("updated node [%s] and saved map", node.Name)
 	return true
 }

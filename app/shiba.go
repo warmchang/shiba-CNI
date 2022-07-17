@@ -18,9 +18,10 @@ const (
 	cniNetName         = "shiba-net"
 	executeGracePeriod = time.Second
 	fireInterval       = time.Minute
-	iptablesChain      = "SHIBA"
-	nodeMapFilename    = "shiba-node-map"
-	tunnelPrefix       = "shiba."
+	iptablesChain        = "SHIBA"
+	nodeMapCacheFilename = "shiba-node-map"
+	nodeMapCacheVersion  = 1
+	tunnelPrefix         = "shiba."
 )
 
 // Shiba is the main app.
@@ -35,6 +36,7 @@ type Shiba struct {
 	nodeGatewayMap  map[string]bool
 	nodeMap         model.NodeMap // When a map reaches here, it's immutable.
 	nodeMapLock     sync.Mutex
+	nodeMapCache    map[string]string
 	fireCh          chan struct{}
 	apiTimeout      time.Duration
 }
@@ -69,7 +71,7 @@ func NewShiba(client kubernetes.Interface, nodeName, cniConfigPath string, optio
 	if err := shiba.initNAT(); err != nil {
 		return nil, fmt.Errorf("failed to init nat: %w", err)
 	}
-	shiba.loadNodeMap()
+	shiba.loadNodeMapCache()
 	shiba.fireCh <- struct{}{} // Trigger a sync for the loaded configuration.
 	log.Info("shiba initialized")
 	return shiba, nil
